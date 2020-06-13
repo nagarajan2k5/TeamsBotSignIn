@@ -6,12 +6,17 @@ import { StatePropertyAccessor, CardFactory, TurnContext, MemoryStorage, Convers
 import HelpDialog from "./dialogs/HelpDialog";
 import WelcomeCard from "./dialogs/WelcomeDialog";
 import SignInDialog from "./dialogs/SignInDialog";
+import { createMeetingService } from "../../Services/createMeetingService";
+import { OnlineMeetingInput, OnlineMeeting } from "../../Services/models";
+import * as moment from 'moment';
+import { WaterfallDialog } from "botbuilder-dialogs";
 
 // Initialize debug logging module
 const log = debug("msteams");
 const connectionName: string = process.env.OAuthConnectionName || '';
 const MAIN_WATERFALL_DIALOG = "MainWaterfallDialog";
 const OAUTH_PROMPT = "OAuthPrompt";
+const SIGN_OUT = "SignOutDialog";
 
 /**
  * Implementation for UserSignIn
@@ -56,6 +61,10 @@ export class UserSignIn extends TeamsActivityHandler {
 
         ]));
 
+        this.dialogs.add(new WaterfallDialog(SIGN_OUT, [
+            this.userSignOut.bind(this)
+        ]));
+
         // this.onTurn( async (context: TurnContext): Promise<void> => {
         // });
 
@@ -82,6 +91,11 @@ export class UserSignIn extends TeamsActivityHandler {
                         const dc = await this.dialogs.createContext(context);
                         await dc.beginDialog(MAIN_WATERFALL_DIALOG);
                     }
+                    else if (text.startsWith("sign out")) {
+                        const dc = await this.dialogs.createContext(context);
+                        await dc.beginDialog(SIGN_OUT);
+                    }
+
                     else {
                         await context.sendActivity(`I\'m terribly sorry, but my master hasn\'t trained me to do anything yet...`);
                     }
@@ -151,6 +165,18 @@ export class UserSignIn extends TeamsActivityHandler {
         const tokenResponse: builder.TokenResponse = stepContext.result;
         if (tokenResponse) {
             await stepContext.context.sendActivity("Token response received");
+            const service = createMeetingService();
+            const startedAt = moment()
+            log("startedAt" + JSON.stringify(startedAt));
+            const meetingInput: OnlineMeetingInput = {
+                startDateTime: startedAt.add(30, 'm'),
+                endDateTime: startedAt.add(60, 'm'),
+                subject: "Testing Online meeting"
+            };
+
+            const meetingInfo = await service.createMeeting(meetingInput, tokenResponse.token);
+            await stepContext.context.sendActivity(JSON.stringify(meetingInfo));
+
         }
         else {
             await stepContext.context.sendActivity("Token response NULL");
@@ -162,6 +188,15 @@ export class UserSignIn extends TeamsActivityHandler {
         log("step: showMeetingCard");
         await stepContext.context.sendActivity("send a card");
         await stepContext.endDialog();
+    }
+
+    protected async userSignOut(stepContext: botDialogs.WaterfallStepContext) {
+        log("step: userSignOut  ");
+        const adapter = stepContext.context.adapter as builder.BotFrameworkAdapter;
+        await adapter.signOutUser(stepContext.context, connectionName);
+
+        await stepContext.context.sendActivity(`You're now signed out from Bot.`);
+        return await stepContext.endDialog();
     }
 
     private checkTokenExists(stepContext: botDialogs.WaterfallStepContext) {
